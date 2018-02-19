@@ -2,18 +2,20 @@
 # -*- coding: utf-8 -*-
 
 """
-File: vhcreate.py
-Author: Nikola Mijuskovic
-Date: 2/15/2018
-Desc: Script creates configuration file, document root and simple index.html file for apache2 virtual host,
-      and adds domain to hosts file.
-Version: 0.1-beta
+File:       vhcreate.py
+Author:     Nikola Mijuskovic
+Date:       2/15/2018
+Desc:       Script creates configuration file, document root and simple index.html file for apache2 virtual host,
+            and adds domain to hosts file. Script works for Debian based linux distributions.
+Version:    0.2-beta
+Python:     2.7
 """
 
 import os
 import sys
 import argparse
 import re
+import grp
 
 APACHE2_SITES_AVAILABLE_DIR = '/etc/apache2/sites-available/'
 
@@ -22,10 +24,13 @@ VHOST_ROOT_DIR = '/var/www/'
 HOSTS = '/etc/hosts'
 
 
-def create_conf(domain, document_root, server_admin="webmaster@localhost"):
+def create_conf(domain, document_root_public, server_admin="webmaster@localhost",
+                a2sites_avail=APACHE2_SITES_AVAILABLE_DIR):
+    """Creates domain.conf file in apache2 sites available directory,
+     enables that virtual host, and restarts apache2 service"""
     conf_filename = domain + ".conf"
 
-    conf_path = os.path.join(APACHE2_SITES_AVAILABLE_DIR, conf_filename)
+    conf_path = os.path.join(a2sites_avail, conf_filename)
 
     if os.path.exists(conf_path):
         print('Configuration file ' + conf_path + 'already exists! Do you want to override it?')
@@ -38,7 +43,7 @@ def create_conf(domain, document_root, server_admin="webmaster@localhost"):
 
     srvadm = '\tServerAdmin\t' + server_admin
 
-    docroot = '\tDocumentRoot\t' + document_root
+    docroot = '\tDocumentRoot\t' + document_root_public
 
     srvname = '\tServerName\t' + domain
 
@@ -72,16 +77,18 @@ def create_conf(domain, document_root, server_admin="webmaster@localhost"):
     return True
 
 
-def create_document_root(document_root):
-    if not os.path.exists(document_root):
-        os.makedirs(document_root)
-        print('Document root ' + document_root + ' has been successfully created!')
+def create_directory(document_root_public):
+    """Creates document root directory if it does not exist."""
+    if not os.path.exists(document_root_public):
+        os.makedirs(document_root_public)
+        print('Document root ' + document_root_public + ' has been successfully created!')
     else:
-        print('Document root ' + document_root + ' already exists!')
+        print('Document root ' + document_root_public + ' already exists!')
 
 
-def create_index_file(domain, document_root):
-    index_path = os.path.join(document_root, 'index.html')
+def create_index_file(domain, document_root_public):
+    """Creates index.html file in document root directory"""
+    index_path = os.path.join(document_root_public, 'index.html')
 
     if os.path.exists(index_path):
         print('File ' + index_path + 'already exists! Do you want to override it?')
@@ -117,21 +124,28 @@ def create_index_file(domain, document_root):
 
 
 def add_host_to_hosts_file(domain, ip='127.0.0.1', hosts_file=HOSTS):
+    """Adds specified ip address and domain to hosts file"""
     if domain in open(hosts_file).read():
         print(domain + " already exists in hosts file!")
     else:
-        vhost = ip + '\t' + domain
+        virtual_host = ip + '\t' + domain
 
         with open(hosts_file, 'r') as original:
             data = original.read()
         with file(hosts_file, 'w') as modified:
-            modified.write(vhost + '\n' + data)
+            modified.write(virtual_host + '\n' + data)
 
         print('Domain ' + domain + ' has been successfully added to hosts file!')
 
 
-def chown_and_chmod(document_root):
-    os.system('chown -R www-data:www-data ' + document_root)
+def chown_and_chmod(document_root, user):
+    """Changes recursively owner user and owner group of document root"""
+    group = grp.getgrnam('www-data')
+    group_mem = group[3]
+    if user in group_mem:
+        os.system('chown -R ' + user + ':www-data ' + document_root)
+    else:
+        os.system('chown -R www-data:www-data ' + document_root)
     os.system('chmod -R 775 ' + document_root)
 
 
@@ -159,6 +173,8 @@ if __name__ == '__main__':
         args = ['sudo', sys.executable] + sys.argv + [os.environ]
         os.execlpe('sudo', *args)
 
+    u = os.system('whoami')
+
     dom = args.domain
 
     if args.docroot is not None:
@@ -170,18 +186,20 @@ if __name__ == '__main__':
 
     else:
 
-        doc_root = '/var/www/' + dom.split('.')[0] + '/public'
+        doc_root = os.path.join('/var/www/', dom.split('.')[0])
+
+    doc_root_public = os.path.join(doc_root, 'public')
 
     if args.admin is not None:
-        create_conf(dom, doc_root, args.admin)
+        create_conf(dom, doc_root_public, args.admin)
     else:
-        create_conf(dom, doc_root)
+        create_conf(dom, doc_root_public)
 
-    create_document_root(doc_root)
+    create_directory(doc_root_public)
 
-    create_index_file(dom, doc_root)
+    create_index_file(dom, doc_root_public)
 
-    # chown_and_chmod(doc_root)
+    chown_and_chmod(doc_root, u)
 
     ip = args.ip
 
